@@ -60,7 +60,7 @@ type StorageConfig struct {
 // refreshed, so a refresh should be performed before use.
 func NewStorage(c *StorageConfig) (s *Storage, err error) {
 	custom, err := NewTextEngine(&TextEngineConfig{
-		Name:  "custom",
+		Name:  EngineNameCustom,
 		Rules: c.CustomRules,
 		ID:    URLFilterIDCustom,
 	})
@@ -71,13 +71,13 @@ func NewStorage(c *StorageConfig) (s *Storage, err error) {
 	return &Storage{
 		refreshMu: &sync.Mutex{},
 		allow: NewEngine(&EngineConfig{
-			Logger:  c.Logger.With("engine", "allow"),
-			Name:    "allow",
+			Logger:  c.Logger.With("engine", EngineNameAllow),
+			Name:    EngineNameAllow,
 			Filters: c.AllowFilters,
 		}),
 		block: NewEngine(&EngineConfig{
-			Logger:  c.Logger.With("engine", "block"),
-			Name:    "block",
+			Logger:  c.Logger.With("engine", EngineNameBlock),
+			Name:    EngineNameBlock,
 			Filters: c.BlockFilters,
 		}),
 		custom:   custom,

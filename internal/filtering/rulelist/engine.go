@@ -19,6 +19,7 @@ import (
 //
 // TODO(a.garipov): Merge with [TextEngine] in some way?
 type Engine struct {
+	// logger is used to log the operation of the engine and its refreshes.
 	logger *slog.Logger
 
 	// mu protects engine and storage.
@@ -32,8 +33,7 @@ type Engine struct {
 	// storage is the filtering-rule storage.  It is saved here to close it.
 	storage *filterlist.RuleStorage
 
-	// name is the human-readable name of the engine, like "allowed", "blocked",
-	// or "custom", used to report errors.
+	// name is the human-readable name of the engine.
 	name string
 
 	// filters is the data about rule filters in this engine.
@@ -46,8 +46,8 @@ type EngineConfig struct {
 	// Logger is used to log the operation of the engine.  It must not be nil.
 	Logger *slog.Logger
 
-	// name is the human-readable name of the engine, like "allowed", "blocked",
-	// or "custom", used to report errors.
+	// name is the human-readable name of the engine; see [EngineNameAllow] and
+	// similar constants.
 	Name string
 
 	// Filters is the data about rule lists in this engine.  There must be no
@@ -92,7 +92,7 @@ func (e *Engine) FilterRequest(
 }
 
 // currentEngine returns the current filtering engine.
-func (e *Engine) currentEngine() (enging *urlfilter.DNSEngine) {
+func (e *Engine) currentEngine() (engine *urlfilter.DNSEngine) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -103,7 +103,7 @@ func (e *Engine) currentEngine() (enging *urlfilter.DNSEngine) {
 // parseBuf, cli, cacheDir, and maxSize are used for updates of rule-list
 // filters; see [Filter.Refresh].
 //
-// TODO(a.garipov): Unexport and test in an internal test or through enigne
+// TODO(a.garipov): Unexport and test in an internal test or through engine
 // tests.
 func (e *Engine) Refresh(
 	ctx context.Context,

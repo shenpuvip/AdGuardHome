@@ -41,6 +41,7 @@ func TestStorage_Refresh(t *testing.T) {
 		MaxRuleListTextSize: 1 * datasize.KB,
 	})
 	require.NoError(t, err)
+	testutil.CleanupAndRequireSuccess(t, strg.Close)
 
 	ctx := testutil.ContextWithTimeout(t, testTimeout)
 	err = strg.Refresh(ctx)
