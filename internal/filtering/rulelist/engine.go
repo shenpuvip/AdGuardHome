@@ -3,11 +3,12 @@ package rulelist
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 
 	"github.com/AdguardTeam/golibs/errors"
-	"github.com/AdguardTeam/golibs/log"
+	"github.com/AdguardTeam/golibs/logutil/slogutil"
 	"github.com/AdguardTeam/urlfilter"
 	"github.com/AdguardTeam/urlfilter/filterlist"
 	"github.com/c2h5oh/datasize"
@@ -18,6 +19,8 @@ import (
 //
 // TODO(a.garipov): Merge with [TextEngine] in some way?
 type Engine struct {
+	logger *slog.Logger
+
 	// mu protects engine and storage.
 	//
 	// TODO(a.garipov): See if anything else should be protected.
@@ -30,7 +33,7 @@ type Engine struct {
 	storage *filterlist.RuleStorage
 
 	// name is the human-readable name of the engine, like "allowed", "blocked",
-	// or "custom".
+	// or "custom", used to report errors.
 	name string
 
 	// filters is the data about rule filters in this engine.
@@ -40,12 +43,15 @@ type Engine struct {
 // EngineConfig is the configuration for rule-list filtering engines created by
 // combining refreshable filters.
 type EngineConfig struct {
-	// Name is the human-readable name of this engine, like "allowed",
-	// "blocked", or "custom".
+	// Logger is used to log the operation of the engine.  It must not be nil.
+	Logger *slog.Logger
+
+	// name is the human-readable name of the engine, like "allowed", "blocked",
+	// or "custom", used to report errors.
 	Name string
 
 	// Filters is the data about rule lists in this engine.  There must be no
-	// other references to the elements of this slice.
+	// other references to the items of this slice.  Each item must not be nil.
 	Filters []*Filter
 }
 
@@ -53,6 +59,7 @@ type EngineConfig struct {
 // refreshed, so a refresh should be performed before use.
 func NewEngine(c *EngineConfig) (e *Engine) {
 	return &Engine{
+		logger:  c.Logger,
 		mu:      &sync.RWMutex{},
 		name:    c.Name,
 		filters: c.Filters,
@@ -115,20 +122,20 @@ func (e *Engine) Refresh(
 	}
 
 	if len(filtersToRefresh) == 0 {
-		log.Info("filtering: updating engine %q: no rule-list filters", e.name)
+		e.logger.InfoContext(ctx, "updating: no rule-list filters")
 
 		return nil
 	}
 
 	engRefr := &engineRefresh{
-		httpCli:    cli,
-		cacheDir:   cacheDir,
-		engineName: e.name,
-		parseBuf:   parseBuf,
-		maxSize:    maxSize,
+		logger:   e.logger,
+		httpCli:  cli,
+		cacheDir: cacheDir,
+		parseBuf: parseBuf,
+		maxSize:  maxSize,
 	}
 
-	ruleLists, errs := engRefr.process(ctx, e.filters)
+	ruleLists, errs := engRefr.process(ctx, filtersToRefresh)
 	if isOneTimeoutError(errs) {
 		// Don't wrap the error since it's informative enough as is.
 		return err
@@ -141,14 +148,14 @@ func (e *Engine) Refresh(
 		return errors.Join(errs...)
 	}
 
-	e.resetStorage(storage)
+	e.resetStorage(ctx, storage)
 
 	return errors.Join(errs...)
 }
 
 // resetStorage sets e.storage and e.engine and closes the previous storage.
 // Errors from closing the previous storage are logged.
-func (e *Engine) resetStorage(storage *filterlist.RuleStorage) {
+func (e *Engine) resetStorage(ctx context.Context, storage *filterlist.RuleStorage) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -161,7 +168,7 @@ func (e *Engine) resetStorage(storage *filterlist.RuleStorage) {
 
 	err := prevStorage.Close()
 	if err != nil {
-		log.Error("filtering: engine %q: closing old storage: %s", e.name, err)
+		e.logger.WarnContext(ctx, "closing old storage", slogutil.KeyError, err)
 	}
 }
 
@@ -179,11 +186,11 @@ func isOneTimeoutError(errs []error) (ok bool) {
 
 // engineRefresh represents a single ongoing engine refresh.
 type engineRefresh struct {
-	httpCli    *http.Client
-	cacheDir   string
-	engineName string
-	parseBuf   []byte
-	maxSize    datasize.ByteSize
+	logger   *slog.Logger
+	httpCli  *http.Client
+	cacheDir string
+	parseBuf []byte
+	maxSize  datasize.ByteSize
 }
 
 // process runs updates of all given rule-list filters.  All errors are logged
@@ -216,12 +223,12 @@ func (r *engineRefresh) process(
 		errs = append(errs, err)
 
 		// Also log immediately, since the update can take a lot of time.
-		log.Error(
-			"filtering: updating engine %q: rule list %s from url %q: %s\n",
-			r.engineName,
-			f.uid,
-			f.url,
-			err,
+		r.logger.ErrorContext(
+			ctx,
+			"updating rule list",
+			"uid", f.uid,
+			"url", f.url,
+			slogutil.KeyError, err,
 		)
 	}
 
@@ -237,17 +244,17 @@ func (r *engineRefresh) processFilter(ctx context.Context, f *Filter) (err error
 	}
 
 	if prevChecksum == parseRes.Checksum {
-		log.Info("filtering: engine %q: filter %q: no change", r.engineName, f.uid)
+		r.logger.InfoContext(ctx, "no change in filter", "uid", f.uid)
 
 		return nil
 	}
 
-	log.Info(
-		"filtering: updated engine %q: filter %q: %d bytes, %d rules",
-		r.engineName,
-		f.uid,
-		parseRes.BytesWritten,
-		parseRes.RulesCount,
+	r.logger.InfoContext(
+		ctx,
+		"filter updated",
+		"uid", f.uid,
+		"bytes", parseRes.BytesWritten,
+		"rules", parseRes.RulesCount,
 	)
 
 	return nil
