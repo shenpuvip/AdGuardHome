@@ -2,6 +2,7 @@ package dnsforward
 
 import (
 	"net"
+	"slices"
 	"time"
 
 	"github.com/AdguardTeam/AdGuardHome/internal/aghnet"
@@ -24,6 +25,9 @@ func (s *Server) processQueryLogsAndStats(dctx *dnsContext) (rc resultCode) {
 	processingTime := time.Since(dctx.startTime)
 
 	ip := pctx.Addr.Addr().AsSlice()
+	if dctx.clientIP != nil {
+		ip = slices.Clone(*dctx.clientIP)
+	}
 	s.anonymizer.Load()(ip)
 	ipStr := net.IP(ip).String()
 

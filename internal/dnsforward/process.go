@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +34,9 @@ type dnsContext struct {
 
 	// err is the error returned from a processing function.
 	err error
+
+	// real client ip (prefer use ecs)
+	clientIP *net.IP
 
 	// clientID is the ClientID from DoH, DoQ, or DoT, if provided.
 	clientID string
@@ -154,6 +158,16 @@ func (s *Server) processInitial(dctx *dnsContext) (rc resultCode) {
 	defer log.Debug("dnsforward: finished processing initial")
 
 	pctx := dctx.proxyCtx
+	if pctx.Addr.Addr().IsLoopback() {
+		if ecs, _ := ecsFromMsg(pctx.Req); ecs != nil {
+			popEdns0(pctx.Req)
+			ecsIP := slices.Clone(ecs.IP)
+			dctx.clientIP = &ecsIP
+			if escIPAddr, ok := netip.AddrFromSlice(ecsIP); ok {
+				s.processClientIP(escIPAddr)
+			}
+		}
+	}
 	s.processClientIP(pctx.Addr.Addr())
 
 	q := pctx.Req.Question[0]
